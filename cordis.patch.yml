@@ -1,0 +1,5 @@
+# Bundle patch for @zimzaza4/dsh-bash-win (declared via package.json dsh.bundle.patch).
+# `dsh plugin` / bundle loaders use this to mount the plugin row.
+- insert:
+    - id: tool-bashx
+      name: '@zimzaza4/dsh-bash-win'
