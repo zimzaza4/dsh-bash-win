@@ -6,7 +6,7 @@ Cordis 插件。
 ## 这个项目解决什么
 
 - DSH 在 Windows 上**禁用了官方 bash 工具**(只有 pwsh)
-- 
+  
 本插件通过 `ctx.subprocess` 直接 spawn `bash.exe` / `wsl.exe`，绕开受限令牌层，
 把 Git Bash 或者 WSL2 带进 DSH，并**自建有效沙箱**(WSL 内 bwrap)与**审批请求**。
 
