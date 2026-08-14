@@ -97,14 +97,6 @@ dsh plugin --profile web add @zimzaza4/dsh-bash-win
 装完**重启 `dsh web`** 生效。包内 `cordis.patch.yml`(经 `dsh.bundle.patch`
 声明)自动挂载插件行，重启后即可在对话中使用 `git_bash` / `wsl_bash`。
 
-### 从本地目录安装(开发调试)
-
-```sh
-dsh plugin --profile web add link:D:/Develop/ToolDev/dsh-bash-win
-```
-
-`link:` 仅适用于本机开发目录;装完同样需要重启 `dsh web`。
-
 ### 验证
 
 - 重启后新会话中应出现 `git_bash` / `wsl_bash` 两个工具;
