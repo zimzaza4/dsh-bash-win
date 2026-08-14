@@ -1,7 +1,7 @@
 {
   "name": "@zimzaza4/dsh-bash-win",
   "description": "Windows-first bash tools for DeepSeek Harness: git_bash (Git Bash) and wsl_bash (WSL2) model tools with bwrap sandbox, approval mode, terminal-style UI cards, and background-job support",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
