@@ -83,10 +83,36 @@ Cordis 插件。
 
 环境变量:`DSH_BASHX_BASH_PATH` / `DSH_BASHX_WSL_PATH` / `DSH_BASHX_WSL_DISTRO`。
 
+## 版本兼容
+
+本插件适配 DSH `0.2.x`（在本机 `0.2.0-rc.2` 上逐项核对过所依赖的宿主 API）：
+
+| 依赖项 | 旧声明 | 现声明 | 说明 |
+| --- | --- | --- | --- |
+| `@deepseek-ai/dsh-tools` | `^0.1.0-rc.6` | `^0.1.0-rc.6 \|\| ^0.2.0-rc.2` | 0.2.x 仍导出 `defineTool` 及其 `presentCall` / `presentResult` / `presentationMeta` |
+| `@deepseek-ai/dsh-sandbox` | `^0.1.0-rc.6` | `^0.1.0-rc.6 \|\| ^0.2.0-rc.2` | `approveEscalation` / `validateEscalationArgs` / `sandboxDenialMarker` / `escalationHintMarker` 均存在 |
+| `dsh.client.inject` | `@deepseek-ai/dsh-client-runtime` | `@deepseek-ai/dsh-client-ui-slots` | 前者在当前 DSH 中已不存在；插件实际使用 `slots` 服务 |
+| 后台任务 `owner` | `exec.agent` | `exec.agent.id` | 宿主按会话 id 查活跃 agent，传对象会报 `session "[object Object]" has no live agent` |
+| 后台任务输出 | `run()` 返回 `readOutput` | `spec.output` 惰性拉取源 | 宿主改为在 spec 上声明 `{ channel, read(fromByte) }` 源，由宿主泵入输出环 |
+| WSL 命令传递 | 直接作为 `bash -lc` 参数 | 先 base64 再在 WSL 内解码 | `wsl.exe` 的参数序列化会吃掉 `$变量`，导致 `i=42; echo $i` 输出为空；与 bwrap 路径同一套规避手段 |
+
+其他已在 `0.2.0-rc.2` 上核对通过的宿主接口：`subprocess.spawn` 与输出收集器
+`readFrom(fromByte) → { text, nextOffset, lossy, spillPath? }`、`timer.timeout(callback, delay)`、
+`sandboxPolicy.resolve`、`sandbox.confine(argv, { mode, workspaceRoot })`。
+
+旧声明会把 `0.2.x` 排除在 peer 范围外，DSH 插件管理器会直接拒绝安装：
+
+```text
+dsh: installation rejected: Plugin @zimzaza4/dsh-bash-win@0.1.2 is incompatible with dsh 0.2.0-rc.1
+```
+
 ## 安装
 
-插件已发布到 npm。通过 DSH 官方 `dsh plugin` 命令安装进 **profile**(`dsh web`
-对应 `web` profile)。
+通过 DSH 官方 `dsh plugin` 命令或**插件管理界面**安装进 profile：
+桌面版对应 `desktop` profile，`dsh web` 对应 `web` profile。
+
+若暂不改插件而想先跑起来，可对旧版本授予精确版本豁免（风险自担）：
+`dsh plugin allow-version` 或插件管理界面中的豁免入口。
 
 ### 从 npm 安装(推荐)
 
