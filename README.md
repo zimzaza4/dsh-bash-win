@@ -34,11 +34,18 @@ Cordis 插件。
 
 共性能力:
 
-- 前台执行:`timeoutMs` 超时终止整个进程树、调用取消
-- 后台任务:`run_in_background: true` 返回 job id，配合 `job_output` / `job_kill`
+- 前台执行:**每条命令都注册成 job**(与官方 bash/pwsh 同一套运行时):
+  运行期间 Web 端的后台任务面板可展开实时看输出、可两击停止;
+  `timeoutMs` 到期不再杀进程,而是**升格**为后台任务,把 job id 交回模型
+  (返回 `kind: promoted`,并附上已产出的输出;没有 job runtime 时退回旧行为:
+  超时终止整个进程树的进程)
+- 人类停止:用户从面板停止时,模型会收到完成通知与 `[stopped: cancelled by the user]`
+- 后台任务:`run_in_background: true` 立刻返回 job id,配合 `job_output` / `job_kill`
   (非零退出码如实上报，kill 分类为 `killed`)
 - 输出收集:内存上限 256 KiB，超限截断并落 spill 文件
-- Web 终端卡片:终端图标、可展开输出、退出码状态，与内置 bash/pwsh 卡片一致
+- Web 终端卡片:终端图标、可展开输出、退出码状态，与内置 bash/pwsh 卡片一致;
+  命令从模型参数(`block.argsRaw`)实时读取，**运行中即可见**，参数仍在流式生成时也会逐步显示;
+  升格卡片显示 `moved to background: <job id>`，人类停止显示 `stopped: <原因>`
 
 ## 支持与限制
 
@@ -76,7 +83,7 @@ Cordis 插件。
     - id: tool-bashx
       name: '@zimzaza4/dsh-bash-win'
       config:
-        bashPath: 'D:\tools\Git\bin\bash.exe'   # 自定义 Git Bash
+        bashPath: 'C:\Program Files\Git\bin\bash.exe'  # 自定义 Git Bash
         wslPath: 'C:\Windows\System32\wsl.exe'  # 自定义 WSL
         wslDistro: 'Debian'                     # 默认发行版
 ```
@@ -96,6 +103,16 @@ dsh plugin --profile web add @zimzaza4/dsh-bash-win
 
 装完**重启 `dsh web`** 生效。包内 `cordis.patch.yml`(经 `dsh.bundle.patch`
 声明)自动挂载插件行，重启后即可在对话中使用 `git_bash` / `wsl_bash`。
+
+### 从本地目录安装(开发调试)
+
+```sh
+dsh plugin --profile web add link:/path/to/dsh-bash-win
+```
+
+(Windows 上写成 `link:D:/path/to/dsh-bash-win`。)
+
+`link:` 仅适用于本机开发目录;装完同样需要重启 `dsh web`。
 
 ### 验证
 
