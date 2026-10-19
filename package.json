@@ -1,7 +1,7 @@
 {
   "name": "@zimzaza4/dsh-bash-win",
   "description": "Windows-first bash tools for DeepSeek Harness: git_bash (Git Bash) and wsl_bash (WSL2) model tools with bwrap sandbox, approval mode, terminal-style UI cards, and background-job support",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -50,8 +50,8 @@
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "^0.1.6-alpha.2 || ^0.2.0-rc.1",
-    "@deepseek-ai/dsh-sandbox": "^0.1.6-alpha.2 || ^0.2.0-rc.1"
+    "@deepseek-ai/dsh-tools": "^0.1.6-alpha.2 || ^0.2.0-rc.1 || ^0.2.1-0",
+    "@deepseek-ai/dsh-sandbox": "^0.1.6-alpha.2 || ^0.2.0-rc.1 || ^0.2.1-0"
   },
   "engines": {
     "node": ">=20"
