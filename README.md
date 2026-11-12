@@ -29,7 +29,7 @@ Cordis 插件。
 
 | 工具 | 后端 | UI 标题 | 能力 |
 | --- | --- | --- | --- |
-| `git_bash` | 本地 Git Bash(MSYS2) | Git Bash | 批准模式(`require_approval`)、官方沙箱接入(`sandbox`，Windows 受限模式报 Cygwin 限制)、后台任务 |
+| `git_bash` | 本地 Git Bash(MSYS2) | Git Bash | 批准模式(`require_approval`)、后台任务;**无 `sandbox` 参数**(Win 受限令牌下 Cygwin 起不来，沙箱只在 wsl_bash) |
 | `wsl_bash` | WSL2(Linux) | WSL Bash | **bwrap 真沙箱**(`sandbox: true`)、升权审批(`sandbox_permissions` + `justification`)、后台任务 |
 
 共性能力:
@@ -37,12 +37,26 @@ Cordis 插件。
 - 前台执行:**每条命令都注册成 job**(与官方 bash/pwsh 同一套运行时):
   运行期间 Web 端的后台任务面板可展开实时看输出、可两击停止;
   `timeoutMs` 到期不再杀进程,而是**升格**为后台任务,把 job id 交回模型
-  (返回 `kind: promoted`,并附上已产出的输出;没有 job runtime 时退回旧行为:
-  超时终止整个进程树的进程)
+  (返回 `kind: promoted`,并附上已产出的输出;没有 job runtime 或
+  `promoteOnTimeout: false` 时退回旧行为:超时终止整个进程树)。超时口径与官方一致:
+  不传 = 120000ms,超过 600000ms 封顶,传 0 或负数直接报错,而不是"无限等"
+- job 注册带 `toolCall: { callId, rootCallId }`，作业面板能与工具调用对齐
 - 人类停止:用户从面板停止时,模型会收到完成通知与 `[stopped: cancelled by the user]`
+- 取消:调用被中止时抛 `HarnessError(TOOL_ABORTED, name: 'AbortError')`，与官方工具同一套
 - 后台任务:`run_in_background: true` 立刻返回 job id,配合 `job_output` / `job_kill`
   (非零退出码如实上报，kill 分类为 `killed`)
+- 结果 schema:与官方 shell 工具同一套判别式 union——`background` / `promoted` /
+  `foreground`，前台分支里 `stdout` / `stderr` 是 `{ text, truncated, spillPath? }`，
+  沙箱事实放 `sandbox: { mode, denied, enforcement? }`
 - 输出收集:内存上限 256 KiB，超限截断并落 spill 文件
+- 文本格式与官方 shell 工具同一套:stdout → `[stderr]` 段 → 状态标记;退出码 0
+  不打印标记，非零打印 `[exit code: N]`，信号打印 `[killed by signal: …]`，
+  空输出写 `(no output)`，截断提示为 `[output truncated; full output: …]`；
+  升格回执为 `[still running after Nms; moved to background job <id>]`
+- 系统提示:注册 `tool:git_bash`(TOOL_BASH 槽) / `tool:wsl_bash`(TOOL_PWSH 槽)，
+  与官方 bash→pwsh 的顺序一致；内容对齐官方（检查 `[exit code: N]`、Windows 被杀 = 1 按中断处理）
+- 配置开关:`enableRunInBackground`(默认 true，关掉后不暴露 `run_in_background`)、
+  `promoteOnTimeout`(默认 true，关掉后超时直接杀)
 - Web 终端卡片:终端图标、可展开输出、退出码状态，与内置 bash/pwsh 卡片一致;
   命令从模型参数(`block.argsRaw`)实时读取，**运行中即可见**，参数仍在流式生成时也会逐步显示;
   升格卡片显示 `moved to background: <job id>`，人类停止显示 `stopped: <原因>`
@@ -54,10 +68,9 @@ Cordis 插件。
 - 自动探测安装位置:`C:\Program Files\Git\bin\bash.exe`、
   `C:\Program Files\Git\usr\bin\bash.exe`、`C:\Program Files (x86)\Git\bin\bash.exe`
 - MSYS2 完整语义(管道、重定向、Unix 风格命令)，Windows/Unix 路径混用
-- 每次调用全新进程，状态不跨调用
-- **无文件沙箱**:受限令牌下 Cygwin 无法启动，默认以完整权限运行;
-  `sandbox: true` 会尝试走 windows-acl 沙箱，受限模式下如实报告 runner 失败
-  (这是平台限制，不是绕过)
+- 每次调用全新进程，状态不跨调用；相对 `workdir` 按会话工作目录解析
+- **无文件沙箱**:受限令牌下 Cygwin 无法启动，因此 `git_bash` **不提供 `sandbox`
+  参数**，默认以完整权限运行；需要沙箱时用 `wsl_bash` 的 bwrap
 - 适合:需要 Windows 侧工具、msys 语义、或"全权限 + 人工批准把关"的场景
 
 ### WSL2(`wsl_bash`)
@@ -86,9 +99,23 @@ Cordis 插件。
         bashPath: 'C:\Program Files\Git\bin\bash.exe'  # 自定义 Git Bash
         wslPath: 'C:\Windows\System32\wsl.exe'  # 自定义 WSL
         wslDistro: 'Debian'                     # 默认发行版
+        enableRunInBackground: true             # false = 不暴露 run_in_background
+        promoteOnTimeout: true                  # false = 超时直接杀，不升格后台
 ```
 
 环境变量:`DSH_BASHX_BASH_PATH` / `DSH_BASHX_WSL_PATH` / `DSH_BASHX_WSL_DISTRO`。
+
+## 测试
+
+不依赖宿主安装的两组测试:
+
+```sh
+node test/bashx-contract.test.mjs   # host 契约:参数面/schema/marker/升格/配置/abort/workdir/沙箱事实
+node toolview-check.mjs             # Web 终端卡片渲染
+```
+
+`test/stubs/` 用 loader hook 把 `@deepseek-ai/dsh-tools`、`dsh-sandbox`、`dsh-llm`
+映射成本地桩，所以直接跑源码即可。
 
 ## 安装
 
@@ -136,9 +163,9 @@ dsh plugin --profile web remove @zimzaza4/dsh-bash-win
 
 ## 依赖
 
-- `@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-sandbox`(peer，宿主提供)
-- 运行时服务:`tools`(硬依赖);`subprocess` / `fs` / `timer` / `jobs` /
-  `approval` / `sandbox` / `sandboxPolicy`(可选 `ctx.get`)
+- `@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-sandbox`、`@deepseek-ai/dsh-llm`(peer，宿主提供)
+- 运行时服务:`tools` / `systemPrompt`(硬依赖);`subprocess` / `fs` / `timer` /
+  `jobs` / `approval` / `sandbox` / `sandboxPolicy`(可选 `ctx.get`)
 - 本机程序(按需):Git for Windows、WSL + 发行版;沙箱模式另需发行版内 `bubblewrap`
 
 ## License
