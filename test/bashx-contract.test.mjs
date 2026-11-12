@@ -293,6 +293,71 @@ await checkAsync('a cancelled call throws the structured abort', async () => {
   assert.equal(error.name, 'AbortError')
 })
 
+// ------------------------------------------ workspace approval gate (git_bash) --
+function policyOf(mode) {
+  return { resolve: () => ({ mode, workspaceRoot: 'C:\\work' }) }
+}
+
+await checkAsync('a workspace-write session gates git_bash behind approval', async () => {
+  const subprocess = makeSubprocess()
+  const requests = []
+  const approval = { request: async (req) => { requests.push(req); return 'allowed-once' } }
+  const env = install(undefined, { subprocess, approval, sandboxPolicy: policyOf('workspace-write') })
+  subprocess.state.next = { stdout: 'ok\n', exitCode: 0, settle: true }
+  const value = await env.git.execute.call(env.git, { command: 'rm x', description: 'Remove x' }, execOf())
+  assert.equal(requests.length, 1, 'exactly one approval request')
+  assert.match(requests[0].reason, /not file-sandboxed/)
+  assert.match(requests[0].reason, /workspace-write/)
+  assert.equal(requests[0].reason.includes('rm x'), false, 'the audit reason does not repeat the command')
+  assert.match(requests[0].displayReason.en, /outside the file sandbox/)
+  assert.match(requests[0].displayReason.zh, /文件沙箱之外/)
+  assert.match(requests[0].displayReason.zh, /workspace-write/)
+  assert.equal(subprocess.state.spawned.length, 1, 'runs after approval')
+  assert.equal(value.exitCode, 0)
+})
+
+await checkAsync('a rejected approval means nothing runs', async () => {
+  const subprocess = makeSubprocess()
+  const approval = { request: async () => 'rejected' }
+  const env = install(undefined, { subprocess, approval, sandboxPolicy: policyOf('read-only') })
+  await assert.rejects(
+    () => env.git.execute.call(env.git, { command: 'x', description: 'd' }, execOf()),
+    /command not executed \(rejected by user\)/,
+  )
+  assert.equal(subprocess.state.spawned.length, 0, 'no process was spawned')
+})
+
+await checkAsync('a danger-full-access session runs without asking', async () => {
+  const subprocess = makeSubprocess()
+  const requests = []
+  const approval = { request: async (req) => { requests.push(req); return 'allowed-once' } }
+  const env = install(undefined, { subprocess, approval, sandboxPolicy: policyOf('danger-full-access') })
+  subprocess.state.next = { stdout: 'ok', exitCode: 0, settle: true }
+  await env.git.execute.call(env.git, { command: 'x', description: 'd' }, execOf())
+  assert.equal(requests.length, 0, 'no approval request in full-access mode')
+  assert.equal(subprocess.state.spawned.length, 1)
+})
+
+await checkAsync('a restricted session without an approval service fails closed', async () => {
+  const subprocess = makeSubprocess()
+  const env = install(undefined, { subprocess, sandboxPolicy: policyOf('workspace-write') })
+  await assert.rejects(
+    () => env.git.execute.call(env.git, { command: 'x', description: 'd' }, execOf()),
+    /approval required/,
+  )
+  assert.equal(subprocess.state.spawned.length, 0)
+})
+
+await checkAsync('an explicit require_approval still asks in full-access mode', async () => {
+  const subprocess = makeSubprocess()
+  const requests = []
+  const approval = { request: async (req) => { requests.push(req); return 'allowed-once' } }
+  const env = install(undefined, { subprocess, approval, sandboxPolicy: policyOf('danger-full-access') })
+  subprocess.state.next = { stdout: 'ok', exitCode: 0, settle: true }
+  await env.git.execute.call(env.git, { command: 'x', description: 'd', require_approval: true }, execOf())
+  assert.equal(requests.length, 1)
+})
+
 // ------------------------------------------------------------- wsl sandbox --
 await checkAsync('wsl_bash reports sandbox facts and renders the denial markers', async () => {
   const subprocess = makeSubprocess()

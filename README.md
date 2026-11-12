@@ -21,7 +21,7 @@ Cordis 插件。
 关键概念:
 
 - **操作路径本身不触发审批**——沙箱对越界的处理是"拒绝"(报错，不弹窗);
-- **审批只出现在两处**:显式批准模式(`require_approval`)和越界后的升权请求;
+- **审批只出现在三处**:受限会话下的 `git_bash` 强制闸门、显式批准模式(`require_approval`)和越界后的升权请求;
 - **升权阶梯**:`workspace-write`(bwrap 受限)→ `danger-full-access`(去掉 bwrap)，
   走官方 `approveEscalation` 流程，必须严格加宽且经用户批准。
 
@@ -71,6 +71,8 @@ Cordis 插件。
 - 每次调用全新进程，状态不跨调用；相对 `workdir` 按会话工作目录解析
 - **无文件沙箱**:受限令牌下 Cygwin 无法启动，因此 `git_bash` **不提供 `sandbox`
   参数**，默认以完整权限运行；需要沙箱时用 `wsl_bash` 的 bwrap
+- **权限**:会话权限不是完全权限(danger-full-access)时，每次调用都先请求批准；
+  拒绝、取消或审批服务缺失都会直接不执行
 - 适合:需要 Windows 侧工具、msys 语义、或"全权限 + 人工批准把关"的场景
 
 ### WSL2(`wsl_bash`)
