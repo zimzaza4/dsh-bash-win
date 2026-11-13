@@ -309,7 +309,10 @@ await checkAsync('a workspace-write session gates git_bash behind approval', asy
   assert.match(requests[0].reason, /not file-sandboxed/)
   assert.match(requests[0].reason, /workspace-write/)
   assert.equal(requests[0].reason.includes('rm x'), false, 'the audit reason does not repeat the command')
+  assert.equal(requests[0].reason.includes('git_bash'), false, 'audit reason uses the product name')
+  assert.match(requests[0].displayReason.en, /Allow Git Bash /)
   assert.match(requests[0].displayReason.en, /outside the file sandbox/)
+  assert.match(requests[0].displayReason.zh, /允许 Git Bash /)
   assert.match(requests[0].displayReason.zh, /文件沙箱之外/)
   assert.match(requests[0].displayReason.zh, /workspace-write/)
   assert.equal(subprocess.state.spawned.length, 1, 'runs after approval')
@@ -356,6 +359,124 @@ await checkAsync('an explicit require_approval still asks in full-access mode', 
   subprocess.state.next = { stdout: 'ok', exitCode: 0, settle: true }
   await env.git.execute.call(env.git, { command: 'x', description: 'd', require_approval: true }, execOf())
   assert.equal(requests.length, 1)
+})
+
+// ------------------------------------ static read-only classification (gate) --
+let sessionCounter = 0
+async function runCommand(command, config, options = {}) {
+  const subprocess = makeSubprocess()
+  const requests = []
+  const approval = options.omitApproval === true
+    ? undefined
+    : { request: async (req) => { requests.push(req); return options.outcome ?? 'allowed-once' } }
+  const env = install(config, { subprocess, approval, sandboxPolicy: policyOf('workspace-write') })
+  subprocess.state.next = { stdout: 'ok\n', exitCode: 0, settle: true }
+  let error
+  try {
+    await env.git.execute.call(env.git, { command, description: 'd' }, options.exec ?? execOf({
+      agent: {
+        id: 'sess-' + (++sessionCounter),
+        session: { id: 'sess-' + sessionCounter, header: { cwd: 'C:\\work' } },
+      },
+    }))
+  } catch (thrown) {
+    error = thrown
+  }
+  return { requests, spawned: subprocess.state.spawned, error }
+}
+
+await checkAsync('read-only command lines run without asking', async () => {
+  const commands = [
+    'pwd', 'ls -la', 'git status', 'git diff --stat', 'git log --oneline -5',
+    'rg -n "pattern" src', 'cat package.json', 'echo hi', 'node --version', 'git branch --show-current',
+    // codex read/list/search families
+    'eza --long', 'tree -L 2', 'fd package.json', 'bat README.md', 'nl README.md',
+    'ag TODO src', 'ack pattern src', 'pt pattern src', 'git ls-files', 'git grep -n pattern',
+  ]
+  for (const command of commands) {
+    const { requests, spawned, error } = await runCommand(command)
+    assert.equal(error, undefined, command + ' should run')
+    assert.equal(requests.length, 0, command + ' must not ask')
+    assert.equal(spawned.length, 1, command + ' should spawn')
+  }
+})
+
+await checkAsync('writes and unknown programs keep the approval gate', async () => {
+  const commands = [
+    'git commit -m x', 'git add .', 'touch a', 'mkdir x', 'npm install',
+    'echo hi > out.txt', 'rm -rf dist', 'python -c "print(1)"', 'cat a | tee b',
+    'sed -i s/a/b/ f', 'git diff --output=patch.diff',
+    // codex exec-capable forms must stay behind the gate
+    'fd . -x rm', 'tree -o out.txt', 'less README.md', 'rga pattern', 'awk BEGIN{system("id")}',
+    'xargs rm', 'start https://example.com',
+  ]
+  for (const command of commands) {
+    const { requests, spawned } = await runCommand(command)
+    assert.equal(requests.length, 1, command + ' should ask')
+    assert.equal(spawned.length, 1, command + ' runs after approval')
+  }
+})
+
+await checkAsync('a dangerous command is labelled and keeps the gate', async () => {
+  const { requests } = await runCommand('rm -rf dist')
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].reason, /dangerous command: rm/)
+  assert.match(requests[0].displayReason.en, /^DANGEROUS command: Allow Git Bash /)
+  assert.match(requests[0].displayReason.zh, /^危险命令：允许 Git Bash /)
+})
+
+await checkAsync('shell constructs the policy cannot verify ask first', async () => {
+  for (const command of ['echo $(rm x)', 'echo `whoami`', 'cat a && cat b > out', 'cmd1 &', 'echo "unbalanced']) {
+    const { requests } = await runCommand(command)
+    assert.equal(requests.length, 1, command + ' should ask')
+  }
+})
+
+await checkAsync('chains are classified segment by segment', async () => {
+  assert.equal((await runCommand('git status && git log')).requests.length, 0, 'read-only chain allowed')
+  const chained = await runCommand('git status && rm x')
+  assert.equal(chained.requests.length, 1, 'a dangerous segment closes the gate')
+  assert.match(chained.requests[0].reason, /dangerous command: rm/)
+})
+
+await checkAsync('allowCommands adds explicit prefixes without asking', async () => {
+  const { requests } = await runCommand('git commit -m x', { allowCommands: ['git commit'] })
+  assert.equal(requests.length, 0)
+})
+
+await checkAsync('denyCommands blocks before anything runs', async () => {
+  const { requests, spawned, error } = await runCommand('git push origin main', { denyCommands: ['git push'] })
+  assert.match(String(error && error.message), /blocked by an explicit deny rule/)
+  assert.equal(requests.length, 0)
+  assert.equal(spawned.length, 0)
+})
+
+await checkAsync('an approved command is remembered for the session', async () => {
+  const exec = execOf({ agent: { id: 'sess-cache', session: { id: 'sess-cache', header: { cwd: 'C:\\work' } } } })
+  const first = await runCommand('touch a', undefined, { exec })
+  const second = await runCommand('touch a', undefined, { exec })
+  assert.equal(first.requests.length, 1)
+  assert.equal(second.requests.length, 0, 'exact repeat needs no second approval')
+})
+
+await checkAsync('approvalCache: false asks every time', async () => {
+  const exec = execOf({ agent: { id: 'sess-nocache', session: { id: 'sess-nocache', header: { cwd: 'C:\\work' } } } })
+  const config = { approvalCache: false }
+  await runCommand('touch a', config, { exec })
+  const second = await runCommand('touch a', config, { exec })
+  assert.equal(second.requests.length, 1)
+})
+
+await checkAsync('autoApproveReadOnly: false restores the every-call gate', async () => {
+  const { requests } = await runCommand('pwd', { autoApproveReadOnly: false })
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].reason, /read-only auto-approval is disabled/)
+})
+
+await checkAsync('a read-only line runs even without an approval service', async () => {
+  const { spawned, error } = await runCommand('git status', undefined, { omitApproval: true })
+  assert.equal(error, undefined)
+  assert.equal(spawned.length, 1)
 })
 
 // ------------------------------------------------------------- wsl sandbox --

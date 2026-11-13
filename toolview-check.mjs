@@ -17,9 +17,15 @@ const documentStub = {
 globalThis.document = documentStub
 globalThis.window = { __ModuleLoader__: { load: (spec) => { loaded = spec } } }
 
+let hookIndex = 0
 const React = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
-  useState: () => [true, () => {}]
+  // First hook (the disclosure state) starts open so bodies render; later hooks
+  // (the copy confirmation) start false.
+  useState: () => {
+    const index = hookIndex++
+    return [index === 0, () => {}]
+  }
 }
 const requireStub = (name) => {
   if (name === 'react') return React
@@ -51,6 +57,7 @@ function walk(node, out) {
 }
 
 function render(component, props) {
+  hookIndex = 0
   const out = walk(component(props), { text: [], nodes: [] })
   const node = (cls) => out.nodes.find((n) => n.props.className === cls)
   const textOf = (cls) => {
@@ -111,9 +118,11 @@ const running = render(gitBash, {
   block: { phase: 'start', callId: 'c3', name: 'git_bash', argsRaw: ARGS, turn: 0, step: 0, time: 0, subCalls: [] }
 })
 check('running row state', running.node('bashx-root').props['data-state'], 'running')
-check('running summary is the command', running.textOf('bashx-summary'), 'npm run build')
+check('running summary is the description', running.textOf('bashx-summary'), 'Build the web bundle')
 check('running expanded head shows the command', running.textOf('bashx-termCommand'), 'npm run build')
-check('running shows cwd prompt', running.textOf('bashx-termPrompt'), 'D:\\work\\demo-repo $')
+check('running banner shows the effective cwd', running.textOf('bashx-termCwd'), "cd 'D:\\work\\demo-repo'")
+check('running banner shows the folder label', running.textOf('bashx-termLabel'), 'demo-repo')
+check('running offers the copy control', running.textOf('bashx-copy'), '复制')
 check('running has no output yet', running.nodes.some((n) => n.props.className === 'bashx-termOutput'), false)
 
 // 3. result (settled): command stays visible, echo/marker are consumed, pill appears.
@@ -134,12 +143,12 @@ const settled = render(gitBash, {
     subCalls: []
   }
 })
-check('settled summary is the command', settled.textOf('bashx-summary'), 'npm run build')
+check('settled summary is the description', settled.textOf('bashx-summary'), 'Build the web bundle')
 check('settled head shows the command', settled.textOf('bashx-termCommand'), 'npm run build')
 check('settled body drops the $ echo', settled.textOf('bashx-termOutput'), '> dist/index.js  12.4 kB')
-check('settled status pill', settled.textOf('bashx-termStatus'), 'exit code: 3')
+check('settled status pill', settled.textOf('bashx-exit'), '退出码 3')
 check('settled exit marker absent from body', /\$ npm run build|\[exit code/.test(settled.textOf('bashx-termOutput')), false)
-check('description kept in the body', settled.textOf('bashx-termDesc'), 'Build the web bundle')
+check('settled body does not repeat the description', settled.nodes.some((n) => n.props.className === 'bashx-termDesc'), false)
 
 // 4. killed by signal: the pill must name the signal, not -1.
 const killed = render(gitBash, {
@@ -158,7 +167,7 @@ const killed = render(gitBash, {
     subCalls: []
   }
 })
-check('killed pill names the signal', killed.textOf('bashx-termStatus'), 'SIGTERM')
+check('killed pill names the signal', killed.textOf('bashx-exit'), '信号 SIGTERM')
 check('killed body drops the -1 marker', killed.textOf('bashx-termOutput'), 'partial output')
 
 // 5. timeout: renderer notice stays in the body, no duplicate pill.
@@ -198,9 +207,9 @@ const background = render(gitBash, {
     subCalls: []
   }
 })
-check('background summary is the command', background.textOf('bashx-summary'), 'npm run dev')
+check('background summary is the description', background.textOf('bashx-summary'), 'Start dev server')
 check('background body kept', background.textOf('bashx-termOutput'), 'started background job job-7')
-check('background shows no exit pill', background.nodes.some((n) => n.props.className === 'bashx-termStatus'), false)
+check('background shows no exit pill', background.nodes.some((n) => n.props.className === 'bashx-exit'), false)
 
 // 7. windowless/malformed result must not throw and must fall back to the title.
 const malformed = render(gitBash, {
@@ -229,10 +238,10 @@ const promoted = render(gitBash, {
     subCalls: []
   }
 })
-check('promoted summary is the command', promoted.textOf('bashx-summary'), 'npm run build')
+check('promoted summary is the description', promoted.textOf('bashx-summary'), 'Build the web bundle')
 check('promoted body is the partial output', promoted.textOf('bashx-termOutput'), 'tick 1\ntick 2')
 check('promoted status names the job', promoted.textOf('bashx-termStatus'), 'moved to background: bash-9')
-check('promoted shows no exit pill', /exit code/.test(promoted.text), false)
+check('promoted shows no exit pill', /退出码|信号/.test(promoted.text), false)
 
 // 9. a human stop recorded by the job view reaches the card.
 const humanStopped = render(gitBash, {

@@ -57,6 +57,12 @@ Cordis 插件。
   与官方 bash→pwsh 的顺序一致；内容对齐官方（检查 `[exit code: N]`、Windows 被杀 = 1 按中断处理）
 - 配置开关:`enableRunInBackground`(默认 true，关掉后不暴露 `run_in_background`)、
   `promoteOnTimeout`(默认 true，关掉后超时直接杀)
+- **静态只读放行**:受限会话里，命令行只有被静态规则确认为只读(纯读/列目录/搜索、无重定向、
+  无命令替换)时才直接运行；写操作、危险命令和无法静态确认的命令行仍然先请求批准。
+  规则参考 codex 的 shell 检查：危险命令(`rm -f`、`del`、`rd /s /q`、`Remove-Item`、
+  危险 git 子命令、GUI URL 启动器)单独标记；`git` 只放行只读子命令，`rg`/`find`/`fd`/`tree`
+  的写/执行开关(`--pre`、`-exec`、`-delete`、`-o`、`-x`)会强制回到审批
+- 审批缓存:同一条命令行在同会话批准过一次后不再重复询问(`approvalCache`，默认开)
 - Web 终端卡片:终端图标、可展开输出、退出码状态，与内置 bash/pwsh 卡片一致;
   命令从模型参数(`block.argsRaw`)实时读取，**运行中即可见**，参数仍在流式生成时也会逐步显示;
   升格卡片显示 `moved to background: <job id>`，人类停止显示 `stopped: <原因>`
@@ -71,8 +77,9 @@ Cordis 插件。
 - 每次调用全新进程，状态不跨调用；相对 `workdir` 按会话工作目录解析
 - **无文件沙箱**:受限令牌下 Cygwin 无法启动，因此 `git_bash` **不提供 `sandbox`
   参数**，默认以完整权限运行；需要沙箱时用 `wsl_bash` 的 bwrap
-- **权限**:会话权限不是完全权限(danger-full-access)时，每次调用都先请求批准；
-  拒绝、取消或审批服务缺失都会直接不执行
+- **权限**:会话权限不是完全权限(danger-full-access)时，只有静态规则确认的只读命令行
+  会直接运行；写操作、危险命令和无法静态确认的命令行先请求批准，拒绝、取消或审批服务
+  缺失都会直接不执行。`allowCommands` 可显式放行前缀，`denyCommands` 直接拦截前缀
 - 适合:需要 Windows 侧工具、msys 语义、或"全权限 + 人工批准把关"的场景
 
 ### WSL2(`wsl_bash`)
@@ -103,6 +110,10 @@ Cordis 插件。
         wslDistro: 'Debian'                     # 默认发行版
         enableRunInBackground: true             # false = 不暴露 run_in_background
         promoteOnTimeout: true                  # false = 超时直接杀，不升格后台
+        autoApproveReadOnly: true               # false = 受限会话恢复逐条审批
+        allowCommands: ['git status', 'git diff']  # 受限会话里直接放行的前缀
+        denyCommands: ['git push', 'rm']        # 直接拦截，连审批都不弹
+        approvalCache: true                     # 同会话批准过的命令行不再重复问
 ```
 
 环境变量:`DSH_BASHX_BASH_PATH` / `DSH_BASHX_WSL_PATH` / `DSH_BASHX_WSL_DISTRO`。
